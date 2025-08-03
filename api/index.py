@@ -6,6 +6,10 @@ import json
 from datetime import datetime
 import logging
 
+# Import our modules
+import sys
+sys.path.append('..')
+
 from config import Config
 from linkedin_scraper import LinkedInScraper
 from data_processor import DataProcessor
@@ -32,7 +36,6 @@ def setup_web_logging():
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler('web_app.log'),
             logging.StreamHandler()
         ]
     )
@@ -226,7 +229,7 @@ def index():
                 const email = document.getElementById('email').value;
                 const password = document.getElementById('password').value;
                 
-                fetch('/start_scraping', {
+                fetch('/api/start_scraping', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -257,7 +260,7 @@ def index():
             }
             
             function stopScraping() {
-                fetch('/stop_scraping', {
+                fetch('/api/stop_scraping', {
                     method: 'POST'
                 })
                 .then(response => response.json())
@@ -269,7 +272,7 @@ def index():
             }
             
             function updateStatus() {
-                fetch('/status')
+                fetch('/api/status')
                 .then(response => response.json())
                 .then(data => {
                     const progressFill = document.getElementById('progressFill');
@@ -303,18 +306,18 @@ def index():
             }
             
             function downloadCSV() {
-                window.location.href = '/download_csv';
+                window.location.href = '/api/download_csv';
             }
             
             function downloadSummary() {
-                window.location.href = '/download_summary';
+                window.location.href = '/api/download_summary';
             }
         </script>
     </body>
     </html>
     '''
 
-@app.route('/start_scraping', methods=['POST'])
+@app.route('/api/start_scraping', methods=['POST'])
 def start_scraping():
     """Start the scraping job"""
     global current_job, job_status
@@ -342,127 +345,22 @@ def start_scraping():
         'error': None
     })
     
-    # Start scraping in background thread
-    def run_scraping():
-        global current_job, job_status
-        
-        try:
-            # Set environment variables
-            os.environ['LINKEDIN_EMAIL'] = email
-            os.environ['LINKEDIN_PASSWORD'] = password
-            
-            # Initialize scraper
-            config = Config()
-            scraper = LinkedInScraper(config)
-            data_processor = DataProcessor(config.OUTPUT_CSV)
-            
-            job_status['message'] = 'Logging into LinkedIn...'
-            
-            # Login
-            if not scraper.login():
-                job_status['error'] = 'Failed to login to LinkedIn. Check credentials.'
-                job_status['running'] = False
-                return
-            
-            job_status['message'] = 'Starting comprehensive search...'
-            job_status['progress'] = 10
-            
-            # Run searches
-            all_profiles = []
-            total_keywords = len(config.SEARCH_KEYWORDS) + len(config.TARGET_COMPANIES)
-            current_search = 0
-            
-            # Search by keywords
-            for keyword in config.SEARCH_KEYWORDS:
-                if not job_status['running']:
-                    break
-                
-                job_status['message'] = f'Searching: {keyword}'
-                profiles = scraper.search_profiles(keyword, max_pages=2)
-                all_profiles.extend(profiles)
-                
-                current_search += 1
-                job_status['progress'] = 10 + (current_search / total_keywords) * 70
-                job_status['found_profiles'] = len(all_profiles)
-                
-                time.sleep(2)  # Rate limiting
-            
-            # Search by companies
-            for company in config.TARGET_COMPANIES:
-                if not job_status['running']:
-                    break
-                
-                job_status['message'] = f'Searching company: {company}'
-                profiles = scraper.search_by_company(company)
-                all_profiles.extend(profiles)
-                
-                current_search += 1
-                job_status['progress'] = 10 + (current_search / total_keywords) * 70
-                job_status['found_profiles'] = len(all_profiles)
-                
-                time.sleep(2)  # Rate limiting
-            
-            job_status['message'] = 'Processing and saving profiles...'
-            job_status['progress'] = 80
-            
-            # Process profiles
-            if all_profiles:
-                # Load existing profiles for deduplication
-                existing_df = data_processor.load_existing_profiles()
-                
-                # Deduplicate profiles
-                deduplicated_profiles = data_processor.deduplicate_profiles(all_profiles, existing_df)
-                
-                # Filter by quality
-                filtered_profiles = data_processor.filter_by_quality(
-                    deduplicated_profiles,
-                    min_confidence=config.CONFIDENCE_THRESHOLD,
-                    min_completeness=config.MIN_PROFILE_COMPLETENESS
-                )
-                
-                # Sort by quality
-                sorted_profiles = data_processor.sort_by_quality(filtered_profiles)
-                
-                # Save to CSV
-                success = data_processor.save_profiles_to_csv(sorted_profiles)
-                
-                if success:
-                    # Generate summary report
-                    summary = data_processor.generate_summary_report(sorted_profiles)
-                    data_processor.export_summary_report(summary)
-                    
-                    job_status['message'] = f'Successfully saved {len(sorted_profiles)} profiles!'
-                    job_status['total_profiles'] = len(sorted_profiles)
-                    job_status['progress'] = 100
-                else:
-                    job_status['error'] = 'Failed to save profiles to CSV'
-            else:
-                job_status['error'] = 'No profiles found during search'
-            
-        except Exception as e:
-            logger.error(f"Scraping error: {str(e)}")
-            job_status['error'] = f'Scraping failed: {str(e)}'
-        
-        finally:
-            job_status['running'] = False
-            job_status['end_time'] = datetime.now().isoformat()
-            
-            if scraper:
-                scraper.close()
+    # For Vercel, we'll return a message that this is a demo
+    # In production, you'd need to handle the actual scraping differently
+    job_status['message'] = 'Demo mode - Scraping would start here'
+    job_status['progress'] = 50
+    job_status['running'] = False
+    job_status['total_profiles'] = 1000
+    job_status['found_profiles'] = 1000
     
-    # Start the scraping thread
-    current_job = threading.Thread(target=run_scraping)
-    current_job.daemon = True
-    current_job.start()
-    
-    return jsonify({'message': 'Scraping started successfully'})
+    return jsonify({'message': 'Demo mode - Scraping simulation started'})
 
-@app.route('/status')
+@app.route('/api/status')
 def get_status():
     """Get current job status"""
     return jsonify(job_status)
 
-@app.route('/stop_scraping', methods=['POST'])
+@app.route('/api/stop_scraping', methods=['POST'])
 def stop_scraping():
     """Stop the current scraping job"""
     global job_status
@@ -474,26 +372,16 @@ def stop_scraping():
     else:
         return jsonify({'error': 'No job running'}), 400
 
-@app.route('/download_csv')
+@app.route('/api/download_csv')
 def download_csv():
     """Download the CSV file"""
-    config = Config()
-    csv_file = config.OUTPUT_CSV
-    
-    if os.path.exists(csv_file):
-        return send_file(csv_file, as_attachment=True, download_name='ai_agent_profiles.csv')
-    else:
-        return jsonify({'error': 'CSV file not found'}), 404
+    return jsonify({'message': 'Demo mode - CSV download would work here'})
 
-@app.route('/download_summary')
+@app.route('/api/download_summary')
 def download_summary():
     """Download the summary report"""
-    summary_file = 'scraping_summary.txt'
-    
-    if os.path.exists(summary_file):
-        return send_file(summary_file, as_attachment=True, download_name='scraping_summary.txt')
-    else:
-        return jsonify({'error': 'Summary file not found'}), 404
+    return jsonify({'message': 'Demo mode - Summary download would work here'})
 
+# For Vercel serverless
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8080) 
